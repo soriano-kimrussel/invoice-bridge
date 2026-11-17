@@ -1,0 +1,110 @@
+# CI/CD for invoice-bridge. No Docker anywhere: no service containers, no image
+# builds, no registry. PostgreSQL for the tests is the copy preinstalled on the
+# GitHub-hosted Ubuntu runner, started natively with systemctl.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/invoice_bridge_test
+      # Fail (rather than skip) if the database-backed suites cannot run.
+      REQUIRE_DB_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Start the runner's native PostgreSQL
+        run: |
+          sudo systemctl start postgresql.service
+          pg_isready --timeout=30
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (Azure and Xero mocked; real Postgres)
+        run: npm test
+
+      - name: Build server and React frontend
+        run: npm run build
+
+      - name: Assemble deployment package
+        # Production node_modules are installed on Linux, matching App Service.
+        run: |
+          mkdir -p deploy/web
+          cp -r dist deploy/dist
+          cp -r web/dist deploy/web/dist
+          cp -r prisma deploy/prisma
+          cp prisma.config.ts package.json package-lock.json deploy/
+          cd deploy
+          npm ci --omit=dev --ignore-scripts
+          zip -qr ../app.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: app.zip
+          retention-days: 7
+
+  deploy:
+    needs: build-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write # OIDC federated login: no Azure secret stored in GitHub
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: app
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure App Service (Node runtime, zip deploy)
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: app.zip
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net/healthz"; then exit 0; fi
+            sleep 10
+          done
+          echo "health check failed" && exit 1

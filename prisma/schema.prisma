@@ -1,0 +1,117 @@
+// invoice-bridge data model.
+// Connection URL lives in prisma.config.ts (read from DATABASE_URL), never here.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Lifecycle of an invoice through the pipeline.
+///
+///   pending ──worker claims──▶ processing ──ok──▶ needs_review ──approve──▶ approved
+///      ▲                          │                    │                       │
+///      └──── retry (backoff) ─────┤                    └──reject──▶ rejected   ▼
+///                                 └── attempts exhausted ──▶ failed       submitted (Xero id stored)
+///                                                                              │ reconcile
+///                                                                   posted ◀───┴───▶ mismatch
+enum InvoiceStatus {
+  pending
+  processing
+  needs_review
+  approved
+  submitted
+  posted
+  mismatch
+  rejected
+  failed
+}
+
+model Invoice {
+  id     String        @id @default(uuid()) @db.Uuid
+  status InvoiceStatus @default(pending)
+
+  /// SHA-256 of the uploaded bytes. Uploading the same file twice returns the same row.
+  contentHash      String @unique @map("content_hash")
+  storageKey       String @map("storage_key")
+  originalFilename String @map("original_filename")
+  mimeType         String @map("mime_type")
+  sizeBytes        Int    @map("size_bytes")
+
+  /// Normalised extraction result (fields + per-field confidence), validated by zod.
+  extracted   Json?     @map("extracted")
+  extractedAt DateTime? @map("extracted_at") @db.Timestamptz(3)
+  /// Human-corrected values saved from the review UI. Becomes the source of truth on approval.
+  reviewed    Json?     @map("reviewed")
+  reviewedBy  String?   @map("reviewed_by")
+  approvedAt  DateTime? @map("approved_at") @db.Timestamptz(3)
+
+  // ---- extraction worker bookkeeping ----
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(5) @map("max_attempts")
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  lockedAt      DateTime? @map("locked_at") @db.Timestamptz(3)
+  lockedBy      String?   @map("locked_by")
+  lastError     String?   @map("last_error")
+
+  // ---- accounting ----
+  accountingProvider String?   @map("accounting_provider")
+  /// External bill id (e.g. Xero InvoiceID). Once set, posting reuses it and never creates another bill.
+  externalId         String?   @map("external_id")
+  postAttempts       Int       @default(0) @map("post_attempts")
+  /// When the background sweeper may next retry a failed post. Null = not scheduled.
+  nextPostAt         DateTime? @map("next_post_at") @db.Timestamptz(3)
+  postedAt           DateTime? @map("posted_at") @db.Timestamptz(3)
+  reconciledAt       DateTime? @map("reconciled_at") @db.Timestamptz(3)
+  reconcileResult    Json?     @map("reconcile_result")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  events InvoiceEvent[]
+
+  @@unique([accountingProvider, externalId])
+  @@index([status, nextAttemptAt])
+  @@index([status, nextPostAt])
+  @@map("invoices")
+}
+
+/// OAuth2 connection to an accounting system. Tokens live here (encrypted), never in memory only,
+/// so every process and every restart shares one refresh-token chain.
+model AccountingConnection {
+  id                   String    @id @default(uuid()) @db.Uuid
+  /// One connection per provider in this single-organisation app ("xero").
+  provider             String    @unique
+  tenantId             String    @map("tenant_id")
+  tenantName           String?   @map("tenant_name")
+  /// AES-256-GCM ciphertext (see src/accounting/crypto.ts)
+  accessTokenEnc       String    @map("access_token_enc")
+  refreshTokenEnc      String    @map("refresh_token_enc")
+  scope                String
+  accessTokenExpiresAt DateTime  @map("access_token_expires_at") @db.Timestamptz(3)
+  lastRefreshedAt      DateTime? @map("last_refreshed_at") @db.Timestamptz(3)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("accounting_connections")
+}
+
+/// Append-only audit trail. Every state change writes one, so nothing disappears silently.
+model InvoiceEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  invoiceId String   @map("invoice_id") @db.Uuid
+  type      String
+  message   String?
+  data      Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, createdAt])
+  @@map("invoice_events")
+}

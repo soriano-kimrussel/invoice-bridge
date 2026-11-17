@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "appServiceSku": { "value": "B1" },
+    "documentIntelligenceSku": { "value": "S0" },
+    "postgresAdminLogin": { "value": "ibadmin" },
+    "postgresSkuName": { "value": "Standard_B1ms" },
+    "postgresVersion": { "value": "16" },
+    "xeroDefaultAccountCode": { "value": "400" }
+  }
+}

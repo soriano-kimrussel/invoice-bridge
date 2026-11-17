@@ -1,0 +1,62 @@
+{
+  "name": "invoice-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI invoice-to-accounting pipeline: Azure Document Intelligence extraction, human review queue, idempotent Xero ACCPAY posting with reconciliation.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.build.json",
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "worker": "tsx watch src/worker/main.ts",
+    "start:worker": "node dist/worker/main.js",
+    "reconcile": "tsx src/accounting/reconcileCli.ts",
+    "start:azure": "prisma migrate deploy && node dist/server.js"
+  },
+  "dependencies": {
+    "@azure-rest/ai-document-intelligence": "^1.1.0",
+    "@azure/storage-blob": "^12.34.0",
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/multipart": "^10.1.9",
+    "@fastify/static": "^10.1.11",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "dotenv": "^18.0.10",
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1",
+    "prisma": "^7.10.1",
+    "xero-node": "^20.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "5.9",
+    "typescript-eslint": "^8.73.0",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}
