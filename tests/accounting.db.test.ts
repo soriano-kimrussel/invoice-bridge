@@ -58,8 +58,8 @@ describe.skipIf(!hasTestDb)('accounting (PostgreSQL, Xero mocked)', () => {
       new TokenStore(db, oauth, cipher, { provider: 'xero', refreshSkewMs: o.skewMs ?? 5 * 60_000, now: () => clock });
 
     beforeEach(async () => {
-      oauth = new FakeOAuthClient(30 * 60_000);
       clock = new Date();
+      oauth = new FakeOAuthClient(30 * 60_000, () => clock);
       const { tokens, tenants } = await oauth.exchangeCode('cb', 'state');
       await store().saveConnection(tokens, tenants[0]!);
     });

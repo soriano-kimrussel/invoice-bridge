@@ -80,14 +80,21 @@ export class FakeOAuthClient implements OAuthClient {
   refreshDelayMs = 0;
   invalidGrant = false;
   private n = 0;
-  constructor(private readonly ttlMs = 30 * 60_000) {}
+  /**
+   * `now` must be the same clock the TokenStore under test uses; otherwise a
+   * test that advances its clock sees freshly issued tokens as already expiring.
+   */
+  constructor(
+    private readonly ttlMs = 30 * 60_000,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   issue(): OAuthTokens {
     this.n++;
     return {
       accessToken: `access-${this.n}`,
       refreshToken: `refresh-${this.n}`,
-      expiresAt: new Date(Date.now() + this.ttlMs),
+      expiresAt: new Date(this.now().getTime() + this.ttlMs),
       scope: 'openid offline_access accounting.invoices',
     };
   }
