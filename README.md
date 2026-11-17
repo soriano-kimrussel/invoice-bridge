@@ -267,7 +267,7 @@ az deployment group create -g rg-invoice-bridge -f infra/main.bicep -p infra/mai
   -p namePrefix=ibdemo postgresAdminPassword=<strong-password> xeroClientId=<id> xeroClientSecret=<secret> tokenEncryptionKey=<base64-32-bytes>
 ```
 
-**4. Point CI at the web app.** Add the repository variable `AZURE_WEBAPP_NAME` = the `webAppName` output.
+**4. Point CI at the web app.** Add the repository variable `AZURE_WEBAPP_NAME` = the `webAppName` output. Until this variable exists, the **ci** workflow skips its `deploy` job, so pushes only build and test.
 
 **5. Register the production redirect URI in Xero.** In your Xero app add `https://<webAppName>.azurewebsites.net/auth/xero/callback` (the `xeroRedirectUri` output).
 

@@ -78,7 +78,9 @@ jobs:
 
   deploy:
     needs: build-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Skipped until Azure is set up (README "Deploy to Azure App Service", step 4
+    # sets AZURE_WEBAPP_NAME); without it azure/login fails on empty secrets.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
     runs-on: ubuntu-latest
     environment: production
     permissions:
